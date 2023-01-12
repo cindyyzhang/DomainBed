@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
+from torchvision import datasets, transforms
 
 import copy
 import numpy as np
@@ -13,6 +14,9 @@ try:
     from backpack.extensions import BatchGrad
 except:
     backpack = None
+
+from vendi_score import vendi, image_utils
+trans = transforms.ToPILImage()
 
 from domainbed import networks
 from domainbed.lib.misc import (
@@ -108,6 +112,48 @@ class ERM(Algorithm):
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
         loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+
+    def predict(self, x):
+        return self.network(x)
+
+
+class VRM(Algorithm):
+    """
+    Vendi Risk Minimization (VRM)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(ERM, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])
+
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+        self.weights = []
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+        dist_y = torch.unique(all_y)
+
+        imgs = [[trans(x) for x, y in minibatches if y == c] for c in dist_y]
+        inception_vs = [image_utils.embedding_vendi_score(s, device="cuda") for s in imgs]
+        inception_vs = torch.Tensor(inception_vs).to(device="cuda")
+        loss = F.cross_entropy(self.predict(all_x), all_y, weight=inception_vs)
 
         self.optimizer.zero_grad()
         loss.backward()

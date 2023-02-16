@@ -120,14 +120,14 @@ class ERM(Algorithm):
 
     def predict(self, x):
         return self.network(x)
-    
+
 class VRM(Algorithm):
     """
     Vendi Risk Minimization (VRM)
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(ERM, self).__init__(input_shape, num_classes, num_domains,
+        super(VRM, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.classifier = networks.Classifier(
@@ -146,9 +146,20 @@ class VRM(Algorithm):
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
+        #print("x shape: ", all_x.size())
+        #print("y shape: ", all_y.size())
+        #print("all y: ", all_y)
         dist_y = torch.unique(all_y)
-
-        imgs = [[trans(x) for x, y in minibatches if y == c] for c in dist_y]
+        #print("distinct y: ", dist_y)
+        imgs = []
+        for c in dist_y:
+            c_list = []
+            for i in range(all_x.size(dim=0)):
+                if all_y[i] == c:
+                    c_list.append(trans(all_x[i]))
+            print("c length: ", c, len(c_list))
+            imgs.append(c_list)
+        #imgs = [[trans(x) for x, y in all_xy if y == c] for c in dist_y]
         inception_vs = [image_utils.embedding_vendi_score(s, device="cuda") for s in imgs]
         inception_vs = torch.Tensor(inception_vs).to(device="cuda")
         loss = F.cross_entropy(self.predict(all_x), all_y, weight=inception_vs)

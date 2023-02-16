@@ -30,6 +30,8 @@ trans = transforms.ToPILImage()
 
 ALGORITHMS = [
     'ERM',
+    'VRM',
+    'VRM_W',
     'Fish',
     'IRM',
     'GroupDRO',
@@ -154,16 +156,13 @@ class VRM(Algorithm):
         #print("y shape: ", all_y.size())
         #print("all y: ", all_y)
         dist_y = torch.unique(all_y)
-        #print("distinct y: ", dist_y)
         imgs = []
         for c in dist_y:
             c_list = []
             for i in range(all_x.size(dim=0)):
                 if all_y[i] == c:
                     c_list.append(trans(all_x[i]))
-            print("c length: ", c, len(c_list))
             imgs.append(c_list)
-        #imgs = [[trans(x) for x, y in all_xy if y == c] for c in dist_y]
         inception_vs = [image_utils.embedding_vendi_score(s, device="cuda") for s in imgs]
         inception_vs = torch.Tensor(inception_vs).to(device="cuda")
         loss = F.cross_entropy(self.predict(all_x), all_y, weight=inception_vs)
@@ -178,13 +177,13 @@ class VRM(Algorithm):
         return self.network(x)
 
 
-class VRM(Algorithm):
+class VRM_W(Algorithm):
     """
     Vendi Risk Minimization (VRM)
     """
 
     def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(ERM, self).__init__(input_shape, num_classes, num_domains,
+        super(VRM_W, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.classifier = networks.Classifier(
@@ -203,12 +202,24 @@ class VRM(Algorithm):
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
+        print("all_y: ", all_y)
         dist_y = torch.unique(all_y)
-
-        imgs = [[trans(x) for x, y in minibatches if y == c] for c in dist_y]
+        imgs = []
+        y_counts = F.one_hot(all_y).sum(dim=0)
+        weights = 1. / (y_counts[all_y] * y_counts.shape[0]).float()
+        weights = torch.Tensor(inception_vs).to(device="cuda")
+        print("weights: ", weights)
+        for c in dist_y:
+            c_list = []
+            for i in range(all_x.size(dim=0)):
+                if all_y[i] == c:
+                    c_list.append(trans(all_x[i]))
+            imgs.append(c_list)
         inception_vs = [image_utils.embedding_vendi_score(s, device="cuda") for s in imgs]
         inception_vs = torch.Tensor(inception_vs).to(device="cuda")
-        loss = F.cross_entropy(self.predict(all_x), all_y, weight=inception_vs)
+        print("inception_vs: ", inception_vs)
+        print(inception_vs * weights)
+        loss = F.cross_entropy(self.predict(all_x), all_y, weight=inception_vs * weights)
 
         self.optimizer.zero_grad()
         loss.backward()
